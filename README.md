@@ -11,4 +11,4 @@ Build
 Run
 ---
 
-    $ _build/default/bin/queue_simulator
+    $ _build/default/bin/queue_simulator --help

@@ -78,11 +78,12 @@ handle_call({push, N}, _From, State) ->
     #queue_state{current_tick = CurrentTick, queued_items = QueuedItems,
                  balked_items = BalkedItems, max_queued = MaxQueued, 
                  queue_size = Size} = State,
-    BalkedN = max(Size, (N + length(QueuedItems))) - Size,
+    BalkedN = if
+                  Size =:= unlimited -> 0;
+                  is_integer(Size) ->
+                      max(Size, (N + length(QueuedItems))) - Size
+              end,
     QueuedN = N - BalkedN,
-    % io:format("queued_items ~p~n", [length(QueuedItems)]),
-    % io:format("adding balked ~p~n", [BalkedN]),
-    % io:format("adding queued ~p~n", [QueuedN]),
     Balked = [#{balking_time => CurrentTick} || _ <- lists:seq(1, BalkedN)],
     Queued = [#{queueing_time => CurrentTick}|| _ <- lists:seq(1, QueuedN)],
     NewQueuedItems = Queued ++ QueuedItems,
@@ -111,14 +112,16 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 
-renege_items(CurrentTick, RenegingTimeout, QueuedItems, RenegedItems) ->
+renege_items(_CurrentTick, RenegingTimeout, QueuedItems, RenegedItems)
+            when RenegingTimeout =:= infinity ->
+    %% if RenegingTimeout is 'infinity', then reneging is disabled
+    {QueuedItems, RenegedItems};
+renege_items(CurrentTick, RenegingTimeout, QueuedItems, RenegedItems)
+            when is_integer(RenegingTimeout) ->
     {StillQueuedItems, NewRenegedItems} = lists:foldl(
         fun(#{queueing_time := T} = I,{Q,R}) ->
             if
                 CurrentTick - T > RenegingTimeout ->
-                    %% The comparison is correct if RenegingTimeout
-                    %% is an atom (e.g. 'infinity'), an atom is always
-                    %% greater than a number
                     {Q,[I#{reneging_time => CurrentTick}|R]};
                 true -> 
                     {[I|Q],R}
